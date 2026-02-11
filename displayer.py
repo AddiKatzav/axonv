@@ -1,7 +1,7 @@
 """
 Displayer component (Step A): receives (frame, detections) from the Detector,
 draws the detections and current time on the image, and displays the video.
-Only this component draws on the image. No blur (Step B).
+Blur (Step B) is applied to each detection ROI using a NumPy-only box blur.
 """
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import logging
 import time
 
 import cv2
+import numpy as np
 
 from shared import SENTINEL
 
@@ -46,6 +47,71 @@ def frame_scheduler(
     if sleep_time > 0:
         time.sleep(sleep_time)
     return first_ts
+
+
+def _box_blur_1d(arr: np.ndarray, radius: int) -> np.ndarray:
+    """
+    One-dimensional box blur using a running sum (cumsum). Same length as input.
+
+    Args:
+        arr: 1D array (any dtype; converted to float for computation).
+        radius: Half-window size; kernel length is 2*radius+1. Edges use a smaller window.
+
+    Returns:
+        Blurred 1D array, float64.
+    """
+    n = arr.size
+    if n == 0:
+        return arr.astype(np.float64)
+    arr = np.asarray(arr, dtype=np.float64)
+    cs = np.concatenate(([0], np.cumsum(arr)))
+    i = np.arange(n)
+    left = np.maximum(0, i - radius)
+    right = np.minimum(n, i + radius + 1)
+    return (cs[right] - cs[left]) / (right - left)
+
+
+def _blur_roi(
+    img: np.ndarray,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    kernel_size: int = 15,
+) -> None:
+    """
+    Blur the detection ROI in-place with a separable box blur (NumPy only).
+
+    Args:
+        img: BGR image, shape (H, W, 3), dtype uint8; modified in-place.
+        x, y, w, h: Top-left and size of the ROI (detection box).
+        kernel_size: Box kernel side length; forced to odd. Skipped or clamped for small ROIs.
+    """
+    rows, cols = img.shape[:2]
+    # Clip to image bounds
+    x1 = max(0, x)
+    y1 = max(0, y)
+    x2 = min(cols, x + w)
+    y2 = min(rows, y + h)
+    rw = x2 - x1
+    rh = y2 - y1
+    if rw < 2 or rh < 2:
+        return
+    # Odd kernel; for small ROIs use largest odd size that fits
+    k = min(kernel_size, rw, rh) | 1
+    if k < 2:
+        return
+    radius = k // 2
+
+    roi = img[y1:y2, x1:x2]  # (rh, rw, 3)
+    # Separable blur: first along rows (axis=1), then along columns (axis=0)
+    for c in range(roi.shape[2]):
+        channel = roi[:, :, c].astype(np.float64)
+        for row in range(rh):
+            channel[row, :] = _box_blur_1d(roi[row, :, c], radius)
+        for col in range(rw):
+            channel[:, col] = _box_blur_1d(channel[:, col], radius)
+        roi[:, :, c] = np.clip(channel, 0, 255).astype(np.uint8)
 
 
 def _draw_elapsed_time(img, elapsed_seconds: float, x: int = 10, y: int = 30) -> None:
@@ -89,6 +155,7 @@ def run_displayer(
             img = frame.copy()
 
             for (x, y, w, h) in detections:
+                _blur_roi(img, x, y, w, h)
                 cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
             elapsed = frame_index / fps if fps > 0 else 0.0
