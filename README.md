@@ -42,4 +42,10 @@ When the video ends (last frame) or on error, the Streamer sends a **PipelineSto
 
 - **Why:** Simple, no extra dependencies, fits a linear pipeline (Streamer → Detector → Displayer). Each stage reads from one queue and writes to the next. Bounded `maxsize` gives back-pressure so the Streamer doesn’t run far ahead and playback stays in sync with the original video timing.
 - **Alternatives considered:** Pipes (more low-level, single producer/consumer per pipe). ZeroMQ/sockets (extra dependency and complexity). Shared memory (more code for serialization and sync). For this assignment, `Queue` is sufficient and keeps the design clear.
+## Single frame exaple:
+# Original video
+<img width="1904" height="934" alt="image" src="https://github.com/user-attachments/assets/e2b5b7b0-6e57-4b97-aa33-8a00d2c0c8eb" />
+# After running the video pipeline
+<img width="1278" height="784" alt="image" src="https://github.com/user-attachments/assets/aa3cab73-d6d5-4c30-a2f0-ffc60b4b6e3c" />
+
 
