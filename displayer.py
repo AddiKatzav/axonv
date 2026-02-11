@@ -17,7 +17,15 @@ logger = logging.getLogger(__name__)
 
 
 def _format_time(seconds: float) -> str:
-    """Format seconds as HH:MM:SS.mmm."""
+    """
+    Format seconds as HH:MM:SS.mmm.
+
+    Args:
+        seconds: Elapsed time in seconds (float).
+
+    Returns:
+        String like "00:01:23.456".
+    """
     m, s = divmod(seconds, 60)
     h, m = divmod(m, 60)
     return f"{int(h):02d}:{int(m):02d}:{s:06.3f}"
@@ -49,26 +57,77 @@ def frame_scheduler(
     return first_ts
 
 
-def _box_blur_1d(arr: np.ndarray, radius: int) -> np.ndarray:
+def _box_blur_along_axis(grid: np.ndarray, radius: int, axis: int) -> np.ndarray:
     """
-    One-dimensional box blur using a running sum (cumsum). Same length as input.
+    Box blur a 2D grid along one axis (vectorized). Shared implementation for
+    row and column passes; uses cumsum and array indexing (no Python loop).
 
     Args:
-        arr: 1D array (any dtype; converted to float for computation).
-        radius: Half-window size; kernel length is 2*radius+1. Edges use a smaller window.
+        grid: 2D array (height, width). Any dtype; converted to float64.
+        radius: Half-window size. Window length is 2*radius+1, or smaller at edges.
+        axis: 0 = blur along columns (vertical), 1 = blur along rows (horizontal).
 
     Returns:
-        Blurred 1D array, float64.
+        Blurred 2D array, same shape, float64.
     """
-    n = arr.size
-    if n == 0:
-        return arr.astype(np.float64)
-    arr = np.asarray(arr, dtype=np.float64)
-    cs = np.concatenate(([0], np.cumsum(arr)))
-    i = np.arange(n)
-    left = np.maximum(0, i - radius)
-    right = np.minimum(n, i + radius + 1)
-    return (cs[right] - cs[left]) / (right - left)
+    grid = np.asarray(grid, dtype=np.float64)
+    length = grid.shape[axis]
+    if length == 0:
+        return grid
+    pad_width = [(0, 0), (0, 0)]
+    pad_width[axis] = (1, 0)
+    padded = np.pad(grid, pad_width, constant_values=0)
+    cumsum = np.cumsum(padded, axis=axis)
+    index = np.arange(length)
+    window_start = np.maximum(0, index - radius)
+    window_end = np.minimum(length, index + radius + 1)
+    if axis == 0:
+        window_sum = cumsum[window_end, :] - cumsum[window_start, :]
+        window_count = (window_end - window_start)[:, np.newaxis]
+    else:
+        window_sum = cumsum[:, window_end] - cumsum[:, window_start]
+        window_count = window_end - window_start
+    return window_sum / window_count
+
+
+def _box_blur_along_rows(grid: np.ndarray, radius: int) -> np.ndarray:
+    """Box blur along each row (horizontal pass). Delegates to _box_blur_along_axis(..., axis=1)."""
+    return _box_blur_along_axis(grid, radius, axis=1)
+
+
+def _box_blur_along_columns(grid: np.ndarray, radius: int) -> np.ndarray:
+    """Box blur along each column (vertical pass). Delegates to _box_blur_along_axis(..., axis=0)."""
+    return _box_blur_along_axis(grid, radius, axis=0)
+
+
+def _clip_roi_to_image(
+    img: np.ndarray,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+) -> tuple[int, int, int, int, int, int] | None:
+    """
+    Clip detection box to image bounds and return ROI geometry.
+
+    Args:
+        img: Image with shape (H, W, ...).
+        x, y, w, h: Top-left and size of the detection box.
+
+    Returns:
+        (roi_left, roi_top, roi_right, roi_bottom, roi_width, roi_height) if
+        ROI has at least 2 pixels in each dimension; None otherwise.
+    """
+    img_height, img_width = img.shape[:2]
+    roi_left = max(0, x)
+    roi_top = max(0, y)
+    roi_right = min(img_width, x + w)
+    roi_bottom = min(img_height, y + h)
+    roi_width = roi_right - roi_left
+    roi_height = roi_bottom - roi_top
+    if roi_width < 2 or roi_height < 2:
+        return None
+    return (roi_left, roi_top, roi_right, roi_bottom, roi_width, roi_height)
 
 
 def _blur_roi(
@@ -86,36 +145,45 @@ def _blur_roi(
         img: BGR image, shape (H, W, 3), dtype uint8; modified in-place.
         x, y, w, h: Top-left and size of the ROI (detection box).
         kernel_size: Box kernel side length; forced to odd. Skipped or clamped for small ROIs.
+
+    Returns:
+        None. Modifies img in-place.
     """
-    rows, cols = img.shape[:2]
-    # Clip to image bounds
-    x1 = max(0, x)
-    y1 = max(0, y)
-    x2 = min(cols, x + w)
-    y2 = min(rows, y + h)
-    rw = x2 - x1
-    rh = y2 - y1
-    if rw < 2 or rh < 2:
+    clipped = _clip_roi_to_image(img, x, y, w, h)
+    if clipped is None:
         return
-    # Odd kernel; for small ROIs use largest odd size that fits
-    k = min(kernel_size, rw, rh) | 1
-    if k < 2:
+    roi_left, roi_top, roi_right, roi_bottom, roi_width, roi_height = clipped
+    kernel_side = min(kernel_size, roi_width, roi_height) | 1
+    if kernel_side < 2:
         return
-    radius = k // 2
+    radius = kernel_side // 2
 
-    roi = img[y1:y2, x1:x2]  # (rh, rw, 3)
-    # Separable blur: first along rows (axis=1), then along columns (axis=0)
-    for c in range(roi.shape[2]):
-        channel = roi[:, :, c].astype(np.float64)
-        for row in range(rh):
-            channel[row, :] = _box_blur_1d(roi[row, :, c], radius)
-        for col in range(rw):
-            channel[:, col] = _box_blur_1d(channel[:, col], radius)
-        roi[:, :, c] = np.clip(channel, 0, 255).astype(np.uint8)
+    roi = img[roi_top:roi_bottom, roi_left:roi_right]  # (roi_height, roi_width, 3)
+    # Separable blur: horizontal pass then vertical pass, per channel (vectorized).
+    for channel_idx in range(roi.shape[2]):
+        channel = roi[:, :, channel_idx].astype(np.float64)
+        channel = _box_blur_along_rows(channel, radius)
+        channel = _box_blur_along_columns(channel, radius)
+        roi[:, :, channel_idx] = np.clip(channel, 0, 255).astype(np.uint8)
 
 
-def _draw_elapsed_time(img, elapsed_seconds: float, x: int = 10, y: int = 30) -> None:
-    """Draw video elapsed time on image (outline + fill for readability)."""
+def _draw_elapsed_time(
+    img: np.ndarray,
+    elapsed_seconds: float,
+    x: int = 10,
+    y: int = 30,
+) -> None:
+    """
+    Draw video elapsed time on image (outline + fill for readability).
+
+    Args:
+        img: BGR image to draw on (modified in-place).
+        elapsed_seconds: Time in seconds to display.
+        x, y: Top-left position for the text (default 10, 30).
+
+    Returns:
+        None.
+    """
     time_str = _format_time(elapsed_seconds)
     cv2.putText(
         img, time_str, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
@@ -133,14 +201,17 @@ def run_displayer(
     window_name: str = "Pipeline output",
 ) -> None:
     """
-    Displayer process loop: read (frame_index, frame, detections, fps), draw and show.
+    Displayer process loop: read (frame_index, frame, detections, fps), blur ROIs, draw and show.
 
     Args:
         in_queue: Receives (frame_index, frame, detections, fps) from Detector; SENTINEL to stop.
         window_name: Title of the OpenCV window.
 
-    Draws rectangles for detections and elapsed time in the top-left; throttles to video FPS.
-    Exits on SENTINEL and closes the window.
+    For each frame: blurs each detection ROI (NumPy box blur), draws rectangles and elapsed
+    time in the top-left, throttles to video FPS. Exits on SENTINEL and closes the window.
+
+    Returns:
+        None.
     """
     first_ts: float | None = None
     frame_count = 0
