@@ -35,7 +35,16 @@ def _grab_contours(cnts):
 
 
 def _contours_to_boxes(cnts, min_area: int) -> list[DetectionBox]:
-    """Convert contours to list of (x, y, w, h) for contours with area >= min_area."""
+    """
+    Convert contours to bounding boxes, filtering by minimum area.
+
+    Args:
+        cnts: List of contours (e.g. from cv2.findContours).
+        min_area: Minimum contour area; contours below this are dropped.
+
+    Returns:
+        List of DetectionBox (x, y, w, h) for contours with area >= min_area.
+    """
     boxes: list[DetectionBox] = []
     for c in cnts:
         if cv2.contourArea(c) < min_area:
@@ -90,6 +99,9 @@ def run_detector(in_queue, out_queue, *, debug: bool = False) -> None:
         in_queue: Receives (frame_index, frame, fps) from Streamer; SENTINEL to stop.
         out_queue: Sends (frame_index, frame, detections, fps) to Displayer; forwards SENTINEL.
         debug: If True, assert that the frame is unchanged after detect() (no drawing).
+
+    Returns:
+        None.
     """
     detect = create_detector()
     count = 0

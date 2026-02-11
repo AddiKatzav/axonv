@@ -32,6 +32,9 @@ def run_streamer(
         max_frames: If set, stop after this many frames (for testing).
 
     Puts SENTINEL on out_queue when the video ends. Frame is BGR (H, W, 3) uint8.
+
+    Returns:
+        None.
     """
     cap = cv2.VideoCapture(video_source)
     if not cap.isOpened():
