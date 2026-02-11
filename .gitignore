@@ -22,6 +22,10 @@ build/
 .DS_Store
 Thumbs.db
 
+# Local video files (avoid blocking branch checkout)
+video/
+video_backup/
+
 # Windows stream / zone identifier (e.g. on downloaded files)
 *:Zone.Identifier
 *.Zone.Identifier

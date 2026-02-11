@@ -1,6 +1,6 @@
-# Video pipeline: Streamer → Detector → Displayer (Step A + blur + Stage-C)
+# Video pipeline: Streamer → Detector → Displayer
 
-Three-process pipeline for analytics on video streams: **Streamer** reads frames, **Detector** finds motion, **Displayer** blurs each detection ROI (NumPy box blur), draws detections and shows the video. **Stage-C** adds explicit stop reasons; all processes exit gracefully when the video ends by itself (last frame) or on stream error.
+Three-process pipeline for analytics on video streams: **Streamer** reads frames, **Detector** finds motion, **Displayer** blurs each detection ROI (NumPy box blur), draws detections and shows the video. adds explicit stop reasons; all processes exit gracefully when the video ends by itself (last frame) or on stream error.
 
 ## Pipeline structure
 
