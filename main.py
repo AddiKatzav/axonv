@@ -11,7 +11,7 @@ import logging
 import multiprocessing as mp
 import sys
 
-from detector_process import run_detector
+from detector import run_detector
 from displayer import run_displayer
 from streamer import run_streamer
 
