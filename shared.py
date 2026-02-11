@@ -30,9 +30,6 @@ class StopReason(str, Enum):
     NORMAL_END = "normal_end"       # EOF or last frame (Streamer)
     OPEN_FAILED = "open_failed"    # VideoCapture failed to open (Streamer)
     READ_ERROR = "read_error"      # Frame read failed (Streamer)
-    MAX_FRAMES = "max_frames"      # Reached max_frames limit, e.g. for testing (Streamer)
-    USER_QUIT = "user_quit"       # User closed display window (Displayer)
-    INTERRUPT = "interrupt"        # SIGINT/SIGTERM or main requested stop (Main)
 
 
 @dataclass(frozen=True)
@@ -74,8 +71,6 @@ SENTINEL: Any = None
 #   Each item: (frame_index: int, frame: np.ndarray, detections: list[DetectionBox], fps: float)
 #   On receiving a stop (is_stop), Detector forwards the same PipelineStop and exits.
 #
-# Displayer: on stop, logs reason, closes window, exits. Optionally sets stop_requested
-# when user closes the window so other processes can exit (USER_QUIT).
+# Displayer: on stop, logs reason, closes window, exits.
 #
-# Main: may set stop_requested Event on KeyboardInterrupt; processes check it and
-# put PipelineStop(INTERRUPT) then exit.
+# Main: starts the three processes and joins them; pipeline ends when video ends.

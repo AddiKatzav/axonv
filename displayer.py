@@ -199,18 +199,15 @@ def run_displayer(
     in_queue,
     *,
     window_name: str = "Pipeline output",
-    stop_requested: object | None = None,
 ) -> None:
     """
     Displayer process loop: read (frame_index, frame, detections, fps), blur ROIs, draw and show.
 
-    Exits on stop message (logs reason) or when user closes the window (sets stop_requested
-    so other processes can exit gracefully).
+    Exits on stop message (logs reason). Pipeline stops when the video ends (last frame).
 
     Args:
         in_queue: Receives (frame_index, frame, detections, fps) from Detector; stop token to stop.
         window_name: Title of the OpenCV window.
-        stop_requested: Optional Event; set when user closes window so pipeline can shut down.
 
     Returns:
         None.
@@ -242,15 +239,6 @@ def run_displayer(
             first_ts = frame_scheduler(first_ts, frame_count, fps)
 
             cv2.waitKey(1)  # process window events so display updates
-            # User closed window: signal pipeline to stop gracefully
-            if stop_requested is not None:
-                try:
-                    if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
-                        stop_requested.set()
-                        logger.info("Displayer: user closed window (USER_QUIT)")
-                        break
-                except cv2.error:
-                    pass
     finally:
         cv2.destroyAllWindows()
         logger.info("Displayer showed %d frames", frame_count)

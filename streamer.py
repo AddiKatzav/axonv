@@ -8,7 +8,6 @@ Message format (see shared.py): (frame_index, frame, fps); then PipelineStop(rea
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -18,25 +17,17 @@ from shared import PipelineStop, StopReason
 logger = logging.getLogger(__name__)
 
 
-def run_streamer(
-    video_source: str,
-    out_queue,
-    *,
-    max_frames: Optional[int] = None,
-    stop_requested: Optional[object] = None,
-) -> None:
+def run_streamer(video_source: str, out_queue) -> None:
     """
     Read video frame by frame and push each to the detector queue.
 
-    Puts exactly one PipelineStop(reason) on out_queue before exiting (normal end,
-    open failed, read error, max_frames, or interrupt). Never leaves the pipeline
+    Puts exactly one PipelineStop(reason) on out_queue before exiting (normal end
+    when video ends, open failed, or read error). Never leaves the pipeline
     waiting on an empty queue.
 
     Args:
         video_source: Path or URL to the video (e.g. file.mp4 or rtsp://...).
         out_queue: multiprocessing.Queue; each item is (frame_index, frame, fps).
-        max_frames: If set, stop after this many frames (for testing).
-        stop_requested: Optional multiprocessing.Event; if set, stop and put INTERRUPT.
 
     Returns:
         None.
@@ -53,9 +44,6 @@ def run_streamer(
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         logger.info("Streamer opened %s, fps=%.2f", video_source, fps)
         while True:
-            if stop_requested is not None and stop_requested.is_set():
-                stop_reason = StopReason.INTERRUPT
-                break
             ret, frame = cap.read()
             if not ret or frame is None:
                 stop_reason = StopReason.NORMAL_END
@@ -65,9 +53,6 @@ def run_streamer(
             frame = np.ascontiguousarray(frame)
             out_queue.put((frame_index, frame, fps))
             frame_index += 1
-            if max_frames is not None and frame_index >= max_frames:
-                stop_reason = StopReason.MAX_FRAMES
-                break
     except Exception as e:
         logger.exception("Streamer read error: %s", e)
         stop_reason = StopReason.READ_ERROR

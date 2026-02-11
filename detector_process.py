@@ -5,8 +5,6 @@ and sends (frame, detections) to the Displayer. Does not draw on the image.
 from __future__ import annotations
 
 import logging
-from queue import Empty
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -16,7 +14,7 @@ try:
 except ImportError:
     imutils = None
 
-from shared import DetectionBox, PipelineStop, StopReason, get_stop_reason, is_stop
+from shared import DetectionBox, get_stop_reason, is_stop
 
 logger = logging.getLogger(__name__)
 
@@ -98,36 +96,25 @@ def run_detector(
     out_queue,
     *,
     debug: bool = False,
-    stop_requested: Optional[object] = None,
 ) -> None:
     """
     Detector process loop: read from in_queue, run motion detection, write to out_queue.
 
-    Forwards PipelineStop unchanged so the stop reason is preserved. Exits on stop
-    or when stop_requested is set (puts INTERRUPT then exits).
+    Forwards PipelineStop unchanged so the stop reason is preserved. Exits on stop.
 
     Args:
         in_queue: Receives (frame_index, frame, fps) from Streamer; stop token to stop.
         out_queue: Sends (frame_index, frame, detections, fps) to Displayer; forwards stop.
         debug: If True, assert that the frame is unchanged after detect() (no drawing).
-        stop_requested: Optional Event; if set, put PipelineStop(INTERRUPT) and exit.
 
     Returns:
         None.
     """
     detect = create_detector()
     count = 0
-    poll_interval = 0.5
     try:
         while True:
-            if stop_requested is not None and stop_requested.is_set():
-                out_queue.put(PipelineStop(StopReason.INTERRUPT))
-                logger.info("Detector exiting on stop_requested (INTERRUPT)")
-                break
-            try:
-                item = in_queue.get(timeout=poll_interval)
-            except Empty:
-                continue
+            item = in_queue.get()
             if is_stop(item):
                 out_queue.put(item)
                 logger.info("Detector forwarding stop (reason=%s)", get_stop_reason(item).value)
