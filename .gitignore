@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+axonv_venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Windows stream / zone identifier (e.g. on downloaded files)
+*:Zone.Identifier
+*.Zone.Identifier
